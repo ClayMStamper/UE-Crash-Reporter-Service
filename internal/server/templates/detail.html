@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crash #{{.ID}} — UE Crash Reporter</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1a1d27; border-bottom: 1px solid #2d3148; padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.25rem; font-weight: 700; color: #7c3aed; }
+  header a { color: #94a3b8; font-size: .875rem; }
+  header a:hover { color: #e2e8f0; text-decoration: none; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 32px; display: grid; gap: 24px; }
+  .card { background: #1a1d27; border: 1px solid #2d3148; border-radius: 10px; overflow: hidden; }
+  .card-header { padding: 14px 20px; background: #12141f; border-bottom: 1px solid #2d3148; display: flex; align-items: center; gap: 10px; }
+  .card-header h2 { font-size: .9rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+  .card-body { padding: 20px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .meta-item .label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 4px; }
+  .meta-item .value { font-size: .9rem; color: #e2e8f0; word-break: break-all; }
+  pre { background: #12141f; border-radius: 6px; padding: 16px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: #cbd5e1; max-height: 500px; overflow-y: auto; }
+  .file-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .file-list li { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #12141f; border-radius: 6px; }
+  .file-list .fname { font-size: .875rem; font-family: monospace; color: #cbd5e1; }
+  .file-list .fsize { font-size: .75rem; color: #64748b; margin-left: 12px; }
+  .file-list a { font-size: .8rem; color: #7c3aed; }
+  .badge-type { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: .8rem; font-weight: 600; }
+  .badge-Crash  { background: #450a0a; color: #fca5a5; }
+  .badge-Assert { background: #451a03; color: #fdba74; }
+  .badge-Ensure { background: #1e3a5f; color: #93c5fd; }
+  .badge-       { background: #1a1d27; color: #64748b; }
+  .guid { font-family: monospace; font-size: .8rem; color: #64748b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ UE Crash Reporter</h1>
+  <a href="/">← All Crashes</a>
+</header>
+<div class="container">
+
+  <!-- Meta -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Crash #{{.ID}}</h2>
+      <span class="badge-type badge-{{.CrashType}}">{{if .CrashType}}{{.CrashType}}{{else}}Unknown{{end}}</span>
+      <span class="guid">{{.GUID}}</span>
+    </div>
+    <div class="card-body">
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="label">Received</div>
+          <div class="value">{{.ReceivedAt.Format "2006-01-02 15:04:05 UTC"}}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">Game</div>
+          <div class="value">{{if .GameName}}{{.GameName}}{{else}}—{{end}}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">Platform</div>
+          <div class="value">{{if .Platform}}{{.Platform}}{{else}}—{{end}}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">Build Version</div>
+          <div class="value">{{if .BuildVersion}}{{.BuildVersion}}{{else}}—{{end}}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">Engine Version</div>
+          <div class="value">{{if .EngineVersion}}{{.EngineVersion}}{{else}}—{{end}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Message -->
+  {{if .ErrorMessage}}
+  <div class="card">
+    <div class="card-header"><h2>Error Message</h2></div>
+    <div class="card-body"><pre>{{.ErrorMessage}}</pre></div>
+  </div>
+  {{end}}
+
+  <!-- User Description -->
+  {{if .UserDesc}}
+  <div class="card">
+    <div class="card-header"><h2>User Description</h2></div>
+    <div class="card-body"><pre>{{.UserDesc}}</pre></div>
+  </div>
+  {{end}}
+
+  <!-- Call Stack -->
+  {{if .CallStack}}
+  <div class="card">
+    <div class="card-header"><h2>Call Stack</h2></div>
+    <div class="card-body"><pre>{{.CallStack}}</pre></div>
+  </div>
+  {{end}}
+
+  <!-- Attached Files -->
+  <div class="card">
+    <div class="card-header"><h2>Attached Files ({{len .Files}})</h2></div>
+    <div class="card-body">
+      {{if .Files}}
+      <ul class="file-list">
+        {{range .Files}}
+        <li>
+          <div>
+            <span class="fname">{{.Filename}}</span>
+            <span class="fsize">{{.SizeBytes}} B</span>
+          </div>
+          <a href="/crash/{{$.ID}}/file/{{.Filename}}">Download</a>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}
+      <p style="color:#64748b;font-size:.875rem">No files attached.</p>
+      {{end}}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UE Crash Reporter</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1a1d27; border-bottom: 1px solid #2d3148; padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.25rem; font-weight: 700; color: #7c3aed; letter-spacing: .02em; }
+  header .badge { background: #2d3148; border-radius: 6px; padding: 4px 10px; font-size: .8rem; color: #94a3b8; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px; }
+  .stats { display: flex; gap: 16px; margin-bottom: 32px; }
+  .stat-card { background: #1a1d27; border: 1px solid #2d3148; border-radius: 10px; padding: 20px 28px; flex: 1; }
+  .stat-card .label { font-size: .75rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .stat-card .value { font-size: 2rem; font-weight: 700; color: #e2e8f0; }
+  table { width: 100%; border-collapse: collapse; background: #1a1d27; border-radius: 10px; overflow: hidden; border: 1px solid #2d3148; }
+  thead { background: #12141f; }
+  th { padding: 12px 16px; text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
+  td { padding: 12px 16px; border-top: 1px solid #1e2235; font-size: .875rem; }
+  tr:hover td { background: #1e2235; }
+  a { color: #7c3aed; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .badge-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+  .badge-Crash  { background: #450a0a; color: #fca5a5; }
+  .badge-Assert { background: #451a03; color: #fdba74; }
+  .badge-Ensure { background: #1e3a5f; color: #93c5fd; }
+  .badge-       { background: #1a1d27; color: #64748b; }
+  .platform { font-size: .75rem; color: #94a3b8; }
+  .time { font-size: .75rem; color: #64748b; white-space: nowrap; }
+  .error-msg { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
+  .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 24px; }
+  .pagination a, .pagination span { padding: 6px 14px; border-radius: 6px; background: #1a1d27; border: 1px solid #2d3148; font-size: .875rem; }
+  .pagination a:hover { background: #2d3148; text-decoration: none; }
+  .pagination .current { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+  .empty { text-align: center; padding: 80px 0; color: #64748b; }
+  .empty p { margin-top: 8px; font-size: .875rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ UE Crash Reporter</h1>
+  <span class="badge">{{.Total}} total crashes</span>
+</header>
+<div class="container">
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Total Crashes</div>
+      <div class="value">{{.Total}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Shown</div>
+      <div class="value">{{len .Crashes}}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Page</div>
+      <div class="value">{{.Page}} / {{.TotalPages}}</div>
+    </div>
+  </div>
+
+  {{if .Crashes}}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Time</th>
+        <th>Game</th>
+        <th>Platform</th>
+        <th>Build</th>
+        <th>Type</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Crashes}}
+      <tr>
+        <td><a href="/crash/{{.ID}}">{{.ID}}</a></td>
+        <td class="time">{{.ReceivedAt.Format "2006-01-02 15:04:05"}}</td>
+        <td>{{if .GameName}}{{.GameName}}{{else}}<span style="color:#64748b">—</span>{{end}}</td>
+        <td class="platform">{{if .Platform}}{{.Platform}}{{else}}—{{end}}</td>
+        <td class="platform">{{if .BuildVersion}}{{.BuildVersion}}{{else}}—{{end}}</td>
+        <td><span class="badge-type badge-{{.CrashType}}">{{if .CrashType}}{{.CrashType}}{{else}}Unknown{{end}}</span></td>
+        <td class="error-msg" title="{{.ErrorMessage}}">{{if .ErrorMessage}}{{.ErrorMessage}}{{else}}<span style="color:#64748b">—</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <div class="pagination">
+    {{if .HasPrev}}<a href="/?page={{.PrevPage}}">← Prev</a>{{end}}
+    <span class="current">{{.Page}}</span>
+    {{if .HasNext}}<a href="/?page={{.NextPage}}">Next →</a>{{end}}
+  </div>
+  {{else}}
+  <div class="empty">
+    <div style="font-size:3rem">📭</div>
+    <strong>No crashes yet</strong>
+    <p>Configure your UE project to point at this server and ship a build.</p>
+  </div>
+  {{end}}
+</div>
+</body>
+</html>
