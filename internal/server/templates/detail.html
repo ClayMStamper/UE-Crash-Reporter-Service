@@ -20,6 +20,11 @@
   .meta-item .label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 4px; }
   .meta-item .value { font-size: .9rem; color: #e2e8f0; word-break: break-all; }
   pre { background: #12141f; border-radius: 6px; padding: 16px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: #cbd5e1; max-height: 500px; overflow-y: auto; }
+  .stack-pre { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; white-space: pre; word-break: normal; }
+  .stack-line { display: block; border-radius: 3px; padding: 0 4px; cursor: pointer; user-select: text; }
+  .stack-line:hover { background: #1e2235; }
+  .stack-line.hl { background: #2d2000; color: #fbbf24; }
+  .stack-hint { font-size: .75rem; color: #475569; margin-bottom: 10px; }
   .file-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
   .file-list li { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #12141f; border-radius: 6px; }
   .file-list .fname { font-size: .875rem; font-family: monospace; color: #cbd5e1; }
@@ -93,7 +98,10 @@
   {{if .CallStack}}
   <div class="card">
     <div class="card-header"><h2>Call Stack</h2></div>
-    <div class="card-body"><pre>{{.CallStack}}</pre></div>
+    <div class="card-body">
+      <p class="stack-hint">Click any line to highlight it for reference. Select text normally to copy.</p>
+      <pre class="stack-pre" id="callstack">{{.CallStack}}</pre>
+    </div>
   </div>
   {{end}}
 
@@ -120,5 +128,20 @@
   </div>
 
 </div>
+
+<script>
+const cs = document.getElementById('callstack');
+if (cs) {
+  const raw = cs.textContent;
+  cs.innerHTML = raw.split('\n').map(line => {
+    const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<span class="stack-line">${escaped}</span>`;
+  }).join('\n');
+  cs.addEventListener('click', e => {
+    const line = e.target.closest('.stack-line');
+    if (line) line.classList.toggle('hl');
+  });
+}
+</script>
 </body>
 </html>

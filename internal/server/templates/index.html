@@ -18,8 +18,8 @@
   table { width: 100%; border-collapse: collapse; background: #1a1d27; border-radius: 10px; overflow: hidden; border: 1px solid #2d3148; }
   thead { background: #12141f; }
   th { padding: 12px 16px; text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
-  td { padding: 12px 16px; border-top: 1px solid #1e2235; font-size: .875rem; }
-  tr:hover td { background: #1e2235; }
+  td { padding: 12px 16px; border-top: 1px solid #1e2235; font-size: .875rem; vertical-align: middle; }
+  tr.crash-row:hover td { background: #1e2235; }
   a { color: #7c3aed; text-decoration: none; }
   a:hover { text-decoration: underline; }
   .badge-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .75rem; font-weight: 600; }
@@ -29,7 +29,41 @@
   .badge-       { background: #1a1d27; color: #64748b; }
   .platform { font-size: .75rem; color: #94a3b8; }
   .time { font-size: .75rem; color: #64748b; white-space: nowrap; }
-  .error-msg { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
+  .error-msg { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
+
+  /* stack toggle button */
+  .btn-stack {
+    background: none; border: 1px solid #2d3148; border-radius: 4px;
+    color: #64748b; font-size: .75rem; padding: 3px 8px; cursor: pointer;
+    white-space: nowrap; transition: border-color .15s, color .15s;
+  }
+  .btn-stack:hover { border-color: #7c3aed; color: #a78bfa; }
+  .btn-stack.open  { border-color: #7c3aed; color: #a78bfa; background: #1e1530; }
+
+  /* expanded callstack sub-row */
+  tr.stack-row { display: none; }
+  tr.stack-row.open { display: table-row; }
+  tr.stack-row td { padding: 0; border-top: none; background: #0d0f1a; }
+  .stack-wrap {
+    padding: 12px 16px 16px 56px;
+    border-top: 1px solid #2d3148;
+    border-bottom: 1px solid #2d3148;
+  }
+  .stack-hint { font-size: .7rem; color: #475569; margin-bottom: 8px; }
+
+  /* callstack pre — shared styles */
+  .stack-pre {
+    background: #12141f; border-radius: 6px; padding: 12px 14px;
+    font-size: .78rem; line-height: 1.65; overflow-x: auto;
+    white-space: pre; color: #cbd5e1;
+    max-height: 360px; overflow-y: auto;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    border: 1px solid #1e2235;
+  }
+  .stack-line { display: block; border-radius: 3px; padding: 0 4px; cursor: pointer; user-select: text; }
+  .stack-line:hover { background: #1e2235; }
+  .stack-line.hl { background: #2d2000; color: #fbbf24; }
+
   .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 24px; }
   .pagination a, .pagination span { padding: 6px 14px; border-radius: 6px; background: #1a1d27; border: 1px solid #2d3148; font-size: .875rem; }
   .pagination a:hover { background: #2d3148; text-decoration: none; }
@@ -70,11 +104,12 @@
         <th>Build</th>
         <th>Type</th>
         <th>Error</th>
+        <th>Stack</th>
       </tr>
     </thead>
     <tbody>
       {{range .Crashes}}
-      <tr>
+      <tr class="crash-row">
         <td><a href="/crash/{{.ID}}">{{.ID}}</a></td>
         <td class="time">{{.ReceivedAt.Format "2006-01-02 15:04:05"}}</td>
         <td>{{if .GameName}}{{.GameName}}{{else}}<span style="color:#64748b">—</span>{{end}}</td>
@@ -82,7 +117,24 @@
         <td class="platform">{{if .BuildVersion}}{{.BuildVersion}}{{else}}—{{end}}</td>
         <td><span class="badge-type badge-{{.CrashType}}">{{if .CrashType}}{{.CrashType}}{{else}}Unknown{{end}}</span></td>
         <td class="error-msg" title="{{.ErrorMessage}}">{{if .ErrorMessage}}{{.ErrorMessage}}{{else}}<span style="color:#64748b">—</span>{{end}}</td>
+        <td>
+          {{if .CallStack}}
+          <button class="btn-stack" data-target="stack-{{.ID}}">▶ Stack</button>
+          {{else}}
+          <span style="color:#64748b;font-size:.75rem">—</span>
+          {{end}}
+        </td>
       </tr>
+      {{if .CallStack}}
+      <tr class="stack-row" id="stack-{{.ID}}">
+        <td colspan="8">
+          <div class="stack-wrap">
+            <div class="stack-hint">Click any line to highlight it for reference. Select text normally to copy.</div>
+            <pre class="stack-pre" id="pre-{{.ID}}">{{.CallStack}}</pre>
+          </div>
+        </td>
+      </tr>
+      {{end}}
       {{end}}
     </tbody>
   </table>
@@ -100,5 +152,30 @@
   </div>
   {{end}}
 </div>
+
+<script>
+// Wrap callstack lines in clickable spans after page load.
+document.querySelectorAll('.stack-pre').forEach(pre => {
+  const raw = pre.textContent;
+  pre.innerHTML = raw.split('\n').map(line => {
+    const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<span class="stack-line">${escaped}</span>`;
+  }).join('\n');
+  pre.addEventListener('click', e => {
+    const line = e.target.closest('.stack-line');
+    if (line) line.classList.toggle('hl');
+  });
+});
+
+// Stack toggle buttons.
+document.querySelectorAll('.btn-stack').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const row = document.getElementById(btn.dataset.target);
+    const open = row.classList.toggle('open');
+    btn.classList.toggle('open', open);
+    btn.textContent = open ? '▼ Stack' : '▶ Stack';
+  });
+});
+</script>
 </body>
 </html>
