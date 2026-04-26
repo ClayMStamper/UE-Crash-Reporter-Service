@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# private ssh key
+ssh_key
+
 # Test binary, built with `go test -c`
 *.test
 
