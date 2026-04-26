@@ -155,7 +155,7 @@ func (s *Store) ListCrashes(limit, offset int) ([]models.Crash, int, error) {
 
 	rows, err := s.db.Query(`
 		SELECT id, guid, game_name, platform, build_version,
-		       crash_type, error_message, received_at
+		       crash_type, error_message, call_stack, received_at
 		FROM crashes
 		ORDER BY received_at DESC
 		LIMIT ? OFFSET ?`, limit, offset)
@@ -170,7 +170,7 @@ func (s *Store) ListCrashes(limit, offset int) ([]models.Crash, int, error) {
 		var receivedAt time.Time
 		if err := rows.Scan(
 			&c.ID, &c.GUID, &c.GameName, &c.Platform, &c.BuildVersion,
-			&c.CrashType, &c.ErrorMessage, &receivedAt,
+			&c.CrashType, &c.ErrorMessage, &c.CallStack, &receivedAt,
 		); err != nil {
 			return nil, 0, err
 		}
