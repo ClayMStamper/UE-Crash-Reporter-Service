@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -17,79 +19,72 @@ import (
 type crashContextXML struct {
 	XMLName           xml.Name `xml:"FGenericCrashContext"`
 	RuntimeProperties struct {
-		CrashGUID     string `xml:"CrashGUID"`
-		GameName      string `xml:"GameName"`
-		PlatformName  string `xml:"PlatformName"`
-		BuildVersion  string `xml:"BuildVersion"`
-		EngineVersion string `xml:"EngineVersion"`
-		CrashType     string `xml:"Misc.CrashType"`
-		ErrorMessage  string `xml:"ErrorMessage"`
-		CallStack     string `xml:"CallStack"`
+		CrashGUID       string `xml:"CrashGUID"`
+		GameName        string `xml:"GameName"`
+		PlatformName    string `xml:"PlatformName"`
+		BuildVersion    string `xml:"BuildVersion"`
+		EngineVersion   string `xml:"EngineVersion"`
+		CrashType       string `xml:"Misc.CrashType"`
+		ErrorMessage    string `xml:"ErrorMessage"`
+		CallStack       string `xml:"CallStack"`
 		UserDescription string `xml:"UserDescription"`
 	} `xml:"RuntimeProperties"`
 }
 
 const maxUploadSize = 128 << 20 // 128 MB
 
+// pendingFile holds a filename and its raw bytes collected from any transport.
+type pendingFile struct {
+	name string
+	data []byte
+}
+
 // receiveCrash handles POST /api/v1/crash from UE's CrashReportClient.
 //
-// UE sends a multipart/form-data body containing one or more files:
+// UE5 (5.3+) sends a single application/octet-stream body that is a zip
+// archive containing crash files:
 //   - CrashContext.runtime-xml  — structured crash metadata
 //   - <GameName>.log            — game log
 //   - <hash>.dmp               — minidump
 //   - Diagnostics.txt          — system summary
 //
-// Any number/combination of files is accepted. We parse what we can.
+// Older UE versions send multipart/form-data with the same files as parts.
+// Both transports are handled here.
 func (s *Server) receiveCrash(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		s.log.Printf("parse multipart: %v", err)
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
+	ct := r.Header.Get("Content-Type")
 
-	crash := &models.Crash{
-		ReceivedAt: time.Now().UTC(),
-		GUID:       fmt.Sprintf("manual-%d", time.Now().UnixNano()), // fallback GUID
-	}
+	var (
+		pending []pendingFile
+		err     error
+	)
 
-	// Collect all uploaded files and look for CrashContext.
-	type pendingFile struct {
-		name string
-		data []byte
-	}
-	var pending []pendingFile
-
-	for fieldName, headers := range r.MultipartForm.File {
-		_ = fieldName
-		for _, fh := range headers {
-			f, err := fh.Open()
-			if err != nil {
-				s.log.Printf("open upload %s: %v", fh.Filename, err)
-				continue
-			}
-			data, err := io.ReadAll(io.LimitReader(f, maxUploadSize))
-			f.Close()
-			if err != nil {
-				s.log.Printf("read upload %s: %v", fh.Filename, err)
-				continue
-			}
-			pending = append(pending, pendingFile{name: fh.Filename, data: data})
+	switch {
+	case strings.Contains(strings.ToLower(ct), "application/octet-stream"):
+		// UE5.3+ sends a raw zip blob.
+		pending, err = extractOctetStream(r)
+		if err != nil {
+			s.log.Printf("extract octet-stream: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
-	}
 
-	// Also allow a raw body with a single file (some UE versions do this).
-	if len(pending) == 0 && r.ContentLength > 0 {
-		data, err := io.ReadAll(io.LimitReader(r.Body, maxUploadSize))
-		if err == nil && len(data) > 0 {
-			pending = append(pending, pendingFile{name: "raw.bin", data: data})
+	case strings.Contains(strings.ToLower(ct), "multipart/form-data"):
+		// Older UE sends individual files as multipart parts.
+		pending, err = extractMultipart(r)
+		if err != nil {
+			s.log.Printf("extract multipart: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
-	}
 
-	// Parse CrashContext.runtime-xml first.
-	for _, pf := range pending {
-		if strings.EqualFold(pf.name, "crashcontext.runtime-xml") {
-			parseCrashContext(pf.data, crash)
+	default:
+		s.log.Printf("unrecognised Content-Type %q — attempting octet-stream fallback", ct)
+		pending, err = extractOctetStream(r)
+		if err != nil {
+			s.log.Printf("fallback extract failed: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -97,6 +92,20 @@ func (s *Server) receiveCrash(w http.ResponseWriter, r *http.Request) {
 		s.log.Printf("received empty crash report — ignoring")
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+
+	s.log.Printf("received %d file(s): %s", len(pending), fileNames(pending))
+
+	crash := &models.Crash{
+		ReceivedAt: time.Now().UTC(),
+		GUID:       fmt.Sprintf("manual-%d", time.Now().UnixNano()), // fallback GUID
+	}
+
+	// Parse CrashContext.runtime-xml first so we have the real GUID.
+	for _, pf := range pending {
+		if strings.EqualFold(pf.name, "crashcontext.runtime-xml") {
+			parseCrashContext(pf.data, crash)
+		}
 	}
 
 	// Persist files under data/<guid>/.
@@ -137,6 +146,67 @@ func (s *Server) receiveCrash(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "crash %s stored (id=%d)\n", crash.GUID, id)
 }
 
+// extractOctetStream reads the body, tries to unzip it, and returns each entry
+// as a pendingFile. If the body is not a valid zip it is returned as a single
+// raw blob named "raw.bin" so we at least preserve the bytes.
+func extractOctetStream(r *http.Request) ([]pendingFile, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if len(body) == 0 {
+		return nil, nil
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		// Not a zip — store the raw bytes anyway.
+		return []pendingFile{{name: "raw.bin", data: body}}, nil
+	}
+
+	var files []pendingFile
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, maxUploadSize))
+		rc.Close()
+		if err != nil {
+			continue
+		}
+		files = append(files, pendingFile{name: filepath.Base(f.Name), data: data})
+	}
+	return files, nil
+}
+
+// extractMultipart parses a multipart/form-data body and returns each file
+// part as a pendingFile.
+func extractMultipart(r *http.Request) ([]pendingFile, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return nil, err
+	}
+	var files []pendingFile
+	for _, headers := range r.MultipartForm.File {
+		for _, fh := range headers {
+			f, err := fh.Open()
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(f, maxUploadSize))
+			f.Close()
+			if err != nil {
+				continue
+			}
+			files = append(files, pendingFile{name: fh.Filename, data: data})
+		}
+	}
+	return files, nil
+}
+
 // parseCrashContext fills crash fields from UE's CrashContext.runtime-xml bytes.
 func parseCrashContext(data []byte, crash *models.Crash) {
 	var ctx crashContextXML
@@ -155,4 +225,13 @@ func parseCrashContext(data []byte, crash *models.Crash) {
 	crash.ErrorMessage = rp.ErrorMessage
 	crash.CallStack = rp.CallStack
 	crash.UserDesc = rp.UserDescription
+}
+
+// fileNames returns a comma-separated list of names from a pendingFile slice.
+func fileNames(files []pendingFile) string {
+	names := make([]string, len(files))
+	for i, f := range files {
+		names[i] = f.name
+	}
+	return strings.Join(names, ", ")
 }

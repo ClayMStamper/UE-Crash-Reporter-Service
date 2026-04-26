@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+#main linux binary
+main
+
 # private ssh key
 ssh_key
 
